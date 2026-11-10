@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />
+<title>llamalite</title>
+<style>
+  :root{ --bg:#0e1014; --panel:#161a21; --panel2:#1e2330; --acc:#4f8cff; --txt:#e8ecf4; --mut:#8b93a7; --ok:#37c76b; --err:#ff5d5d; --warn:#f0b429; }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; height:100%; background:var(--bg); color:var(--txt);
+    font:15px/1.45 -apple-system,Roboto,"Segoe UI",system-ui,sans-serif; }
+  .wrap{ display:flex; flex-direction:column; height:100dvh; max-width:860px; margin:0 auto; }
+  header{ display:flex; align-items:center; gap:8px; padding:10px 12px; background:var(--panel);
+    border-bottom:1px solid #262b36; position:sticky; top:0; z-index:5; flex-wrap:wrap; }
+  .ttl{ font-weight:800; letter-spacing:.4px; }
+  .dot{ width:9px; height:9px; border-radius:50%; background:var(--err); }
+  .dot.on{ background:var(--ok); }
+  select,input,textarea{ background:var(--panel2); color:var(--txt); border:1px solid #2c3243;
+    border-radius:9px; padding:7px 9px; font:inherit; }
+  select{ max-width:44vw; }
+  .spacer{ flex:1; }
+  button{ background:var(--acc); color:#fff; border:0; border-radius:9px; padding:8px 13px;
+    font:inherit; font-weight:600; cursor:pointer; }
+  button.ghost{ background:var(--panel2); border:1px solid #2c3243; color:var(--txt); }
+  button.sm{ padding:5px 9px; font-size:.85em; }
+  button:disabled{ opacity:.5; }
+  .tabs{ display:flex; gap:6px; padding:8px 12px 0; background:var(--bg); }
+  .tabs button{ background:transparent; color:var(--mut); border:0; border-bottom:2px solid transparent; border-radius:0; }
+  .tabs button.act{ color:var(--txt); border-bottom-color:var(--acc); }
+  #chat{ flex:1; overflow-y:auto; padding:14px 12px 4px; }
+  .msg{ max-width:90%; padding:10px 13px; border-radius:14px; margin:7px 0; white-space:pre-wrap; word-wrap:break-word; }
+  .u{ background:var(--acc); color:#fff; margin-left:auto; border-bottom-right-radius:4px; }
+  .a{ background:var(--panel2); border-bottom-left-radius:4px; }
+  .meta{ color:var(--mut); font-size:.78em; margin:2px 4px 0; }
+  .think{ color:var(--mut); font-size:.9em; border-left:2px solid #3a4257; padding-left:8px; margin:0 0 8px; white-space:pre-wrap; }
+  .row{ display:flex; gap:8px; padding:10px 12px; background:var(--panel); border-top:1px solid #262b36; }
+  .row textarea{ flex:1; resize:none; min-height:44px; max-height:140px; background:var(--panel2); border-radius:11px; }
+  .bar{ display:flex; align-items:center; gap:10px; padding:7px 12px; flex-wrap:wrap; background:var(--panel); border-bottom:1px solid #202531; }
+  .bar label{ color:var(--mut); font-size:.82em; display:flex; gap:5px; align-items:center; }
+  #settings{ display:none; flex:1; overflow-y:auto; padding:12px; }
+  fieldset{ border:1px solid #2a3040; border-radius:12px; margin:0 0 12px; padding:10px 12px 14px; }
+  legend{ color:var(--mut); font-size:.82em; padding:0 6px; text-transform:uppercase; letter-spacing:.5px; }
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:10px; }
+  .f{ display:flex; flex-direction:column; gap:4px; }
+  .f label{ color:var(--mut); font-size:.8em; }
+  .f input,.f select{ width:100%; }
+  .chk{ display:flex; flex-direction:row; align-items:center; gap:8px; color:var(--txt); }
+  .chk input{ width:auto; }
+  .full{ grid-column:1/-1; }
+  .hint{ color:var(--mut); font-size:.8em; }
+  .toast{ position:fixed; bottom:88px; left:50%; transform:translateX(-50%); background:#2a2f3d;
+    border:1px solid #3a4257; padding:9px 14px; border-radius:10px; font-size:.9em; opacity:0;
+    transition:.2s; pointer-events:none; z-index:9; max-width:90vw; }
+  .toast.show{ opacity:1; }
+  pre.log{ background:#0b0d11; border:1px solid #262b36; border-radius:8px; padding:8px; font-size:12px;
+    max-height:300px; overflow:auto; color:#b7c0d0; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="dot" id="dot"></span>
+    <span class="ttl">llamalite</span>
+    <select id="model" title="Model na štart (sken sdcard)"></select>
+    <button class="ghost" id="btnStart">▶ Start</button>
+    <button class="ghost" id="btnStop">■ Stop</button>
+    <span class="spacer"></span>
+    <button class="ghost sm" id="btnScan">⟳ Skenovať</button>
+  </header>
+
+  <div class="tabs">
+    <button id="tabChat" class="act">Chat</button>
+    <button id="tabSet">Nastavenia</button>
+    <button id="tabLog">Log</button>
+  </div>
+
+  <!-- ===== CHAT ===== -->
+  <div id="viewChat" style="display:flex; flex-direction:column; flex:1; min-height:0;">
+    <div class="bar">
+      <label>stream <input type="checkbox" id="stream" checked></label>
+      <span id="servinfo" class="hint"></span>
+    </div>
+    <div id="chat"></div>
+    <div class="row">
+      <textarea id="inp" placeholder="Napíš správu… (Enter = odoslať)"></textarea>
+      <button id="btnSend">Poslať</button>
+    </div>
+  </div>
+
+  <!-- ===== NASTAVENIA ===== -->
+  <div id="settings">
+    <fieldset><legend>Model / mmproj</legend>
+      <div class="grid">
+        <div class="f full"><label>Vybraný model</label><div id="selModelName" class="hint">—</div></div>
+        <div class="f"><label>mmproj (vision)</label>
+          <select id="s_mmproj_mode">
+            <option value="auto">auto (nájdi podľa názvu)</option>
+            <option value="off">vypnuté</option>
+          </select></div>
+        <div class="f"><label>image_min_tokens</label><input id="s_imgtok" type="number" min="0"></div>
+      </div>
+    </fieldset>
+
+    <fieldset><legend>Pamäť / načítanie</legend>
+      <div class="grid">
+        <div class="f"><label>load_mode</label>
+          <select id="s_loadmode">
+            <option>auto</option><option>mmap</option><option>mlock</option><option>mmap+mlock</option>
+          </select></div>
+        <div class="f"><label class="chk"><input type="checkbox" id="s_repack"> repack (ARM dotprod)</label></div>
+        <div class="f"><label>flash-attn</label>
+          <select id="s_fa"><option>auto</option><option>on</option><option>off</option></select></div>
+        <div class="f"><label>KV cache K (ctk)</label><select id="s_ctk"></select></div>
+        <div class="f"><label>KV cache V (ctv)</label><select id="s_ctv"></select></div>
+      </div>
+      <p class="hint">repack zrýchli prefill ~2,7× (dlhší štart, viac RAM). flash-attn zníži KV cache.</p>
+    </fieldset>
+
+    <fieldset><legend>Výkon / kontext</legend>
+      <div class="grid">
+        <div class="f"><label>kontext -c</label><input id="s_ctx" type="number" min="512" step="1024"></div>
+        <div class="f"><label>vlákna -t</label><input id="s_th" type="number" min="1" max="8"></div>
+        <div class="f"><label>vlákna batch -tb</label><input id="s_tb" type="number" min="1" max="8"></div>
+        <div class="f"><label>batch -b</label><input id="s_b" type="number" min="1" step="256"></div>
+        <div class="f"><label>ubatch -ub</label><input id="s_ub" type="number" min="1" step="64"></div>
+        <div class="f"><label>sloty -np</label><input id="s_np" type="number" min="1" max="8"></div>
+      </div>
+    </fieldset>
+
+    <fieldset><legend>Reasoning</legend>
+      <div class="grid">
+        <div class="f"><label>reasoning</label>
+          <select id="s_rea"><option>off</option><option>on</option><option>auto</option></select></div>
+        <div class="f"><label>reasoning-format</label>
+          <select id="s_reafm"><option>deepseek</option><option>none</option></select></div>
+        <div class="f"><label>reasoning-budget</label><input id="s_reab" type="number" min="-1"></div>
+      </div>
+    </fieldset>
+
+    <fieldset><legend>Sampling (defaulty servera)</legend>
+      <div class="grid">
+        <div class="f"><label>temp</label><input id="s_temp" type="number" step="0.05" min="0" max="3"></div>
+        <div class="f"><label>top_k</label><input id="s_topk" type="number" min="0"></div>
+        <div class="f"><label>top_p</label><input id="s_topp" type="number" step="0.05" min="0" max="1"></div>
+        <div class="f"><label>min_p</label><input id="s_minp" type="number" step="0.01" min="0" max="1"></div>
+        <div class="f"><label>repeat_penalty</label><input id="s_rep" type="number" step="0.05" min="0"></div>
+        <div class="f"><label>seed (-1 = random)</label><input id="s_seed" type="number"></div>
+      </div>
+    </fieldset>
+
+    <fieldset><legend>Server</legend>
+      <div class="grid">
+        <div class="f"><label>host</label><input id="s_host"></div>
+        <div class="f"><label>port</label><input id="s_port" type="number"></div>
+        <div class="f"><label class="chk"><input type="checkbox" id="s_jinja"> jinja (chat template)</label></div>
+        <div class="f"><label class="chk"><input type="checkbox" id="s_warmup"> warmup pri štarte</label></div>
+        <div class="f full"><label>chat_template_file (voliteľné)</label><input id="s_ctf"></div>
+        <div class="f full"><label>extra_args (voľné, rozdelí sa ako shell)</label><input id="s_extra" placeholder="napr. --swa-full --no-context-shift"></div>
+      </div>
+    </fieldset>
+
+    <fieldset><legend>Pokročilé (celý JSON)</legend>
+      <div class="f full"><label>settings.json (vrátane overrides, scan_dirs, bin…)</label>
+        <textarea id="s_raw" rows="12" spellcheck="false"></textarea></div>
+      <p class="hint">Tu vieš pridať <b>overrides</b> pre konkrétny model (podľa id) alebo zmeniť scan_dirs / bin.</p>
+      <div style="margin-top:8px; display:flex; gap:8px;">
+        <button id="btnRawReload" class="ghost">Načítať JSON</button>
+        <button id="btnRawSave">Uložiť RAW</button>
+      </div>
+    </fieldset>
+
+    <div style="display:flex; gap:8px; position:sticky; bottom:0; padding:10px 0; background:var(--bg);">
+      <button id="btnSave">💾 Uložiť nastavenia</button>
+      <button id="btnSaveStart" class="ghost">Uložiť &amp; reštart modelu</button>
+    </div>
+  </div>
+
+  <!-- ===== LOG ===== -->
+  <div id="viewLog" style="display:none; flex:1; overflow-y:auto; padding:12px;">
+    <button class="ghost sm" id="btnReloadLog">⟳ Obnoviť</button>
+    <pre class="log" id="logbox" style="margin-top:8px;">(načítavam…)</pre>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const BASE = location.origin;
+const LLAMA = localStorage.getItem("ll_base") || "http://127.0.0.1:8080";
+const KV_TYPES = ["f16","bf16","q8_0","q4_0","q4_1","q5_0","q5_1","iq4_nl","q6_k","q5_k"];
+let cfg=null, scan=[], modelList=[], history=[];
+
+function toast(m){ const t=$("#toast"); t.textContent=m; t.classList.add("show"); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("show"),2200); }
+function dot(on){ $("#dot").classList.toggle("on", !!on); }
+function esc(s){ return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+function tab(name){
+  for(const n of ["Chat","Set","Log"]) $("#tab"+n).classList.toggle("act", n===name);
+  $("#viewChat").style.display = name==="Chat"?"flex":"none";
+  $("#settings").style.display = name==="Set"?"block":"none";
+  $("#viewLog").style.display = name==="Log"?"block":"none";
+  if(name==="Log") loadLog();
+}
+$("#tabChat").onclick=()=>tab("Chat");
+$("#tabSet").onclick=()=>tab("Set");
+$("#tabLog").onclick=()=>tab("Log");
+
+async function doScan(){
+  try{
+    const r=await fetch(BASE+"/api/scan",{cache:"no-store"}); const j=await r.json();
+    scan=j.profiles||[]; const sel=$("#model"); const prev=sel.value; sel.innerHTML="";
+    scan.forEach(p=>{ const o=document.createElement("option"); o.value=p.id;
+      const sz=(p.size_mb>=1024? (p.size_mb/1024).toFixed(1)+"G":Math.round(p.size_mb)+"M");
+      o.textContent=p.name.slice(0,36)+" · "+sz+(p.broken?" ⚠":"")+(p.vision?" 👁":"");
+      o.title=p.path+(p.mmproj?("\nmmproj: "+p.mmproj_name):""); sel.appendChild(o); });
+    if(prev && scan.some(p=>p.id===prev)) sel.value=prev; else if(scan.length) sel.value=scan[0].id;
+    showSel();
+  }catch(e){ toast("Sken zlyhal: "+e.message); }
+}
+function showSel(){
+  const b=scan.find(p=>p.id===$("#model").value);
+  $("#selModelName").textContent = b? (b.path+(b.vision?("\nmmproj: "+b.mmproj_name):"")+(b.broken?"   ⚠ POŠKODENÝ":"")) : "—";
+}
+$("#btnScan").onclick=doScan;
+$("#model").onchange=showSel;
+
+async function refreshServer(){
+  try{ const r=await fetch(LLAMA+"/v1/models",{cache:"no-store"}); if(!r.ok) throw 0;
+    const j=await r.json(); modelList=(j.data||[]).map(m=>m.id);
+    $("#servinfo").textContent="llama-server OK · "+(modelList.join(", ")||"?"); dot(true);
+  }catch(e){ $("#servinfo").textContent="llama-server nebeží ("+LLAMA+")"; dot(false); }
+}
+
+async function startModel(){
+  const id=$("#model").value; if(!id){ toast("Vyber model"); return; }
+  const b=scan.find(p=>p.id===id);
+  if(b && b.broken && !confirm("Model má poškodenú GGUF hlavičku a pravdepodobne sa nenájde.\nPokračovať aj tak?")) return;
+  toast("Štartujem "+id+"… (môže trvať ~15–60 s)");
+  try{ const r=await fetch(BASE+"/api/start?id="+encodeURIComponent(id),{cache:"no-store"});
+    const j=await r.json();
+    if(j.status==="ok"){ toast("Beží ✔"); setTimeout(refreshServer,500); }
+    else{ toast("Chyba: "+((j.output||"").split("\n").pop()||"")); tab("Log"); }
+  }catch(e){ toast("Chyba: "+e.message); }
+}
+async function stopModel(){
+  try{ const r=await fetch(BASE+"/api/stop",{cache:"no-store"}); const j=await r.json();
+    toast("Zastavené ("+(j.killed||0)+")"); refreshServer(); }catch(e){ toast("Chyba: "+e.message); }
+}
+$("#btnStart").onclick=startModel; $("#btnStop").onclick=stopModel;
+
+function bubble(role,text){ const d=document.createElement("div"); d.className="msg "+(role==="user"?"u":"a");
+  d.textContent=text; $("#chat").appendChild(d); $("#chat").scrollTop=$("#chat").scrollHeight; return d; }
+
+async function send(){
+  const text=$("#inp").value.trim(); if(!text) return;
+  if(!modelList.length){ await refreshServer(); if(!modelList.length){ toast("llama-server nebeží – klikni Start"); return; } }
+  bubble("user",text); $("#inp").value=""; $("#inp").style.height="auto";
+  history.push({role:"user",content:text});
+  const d=(cfg&&cfg.defaults)||{};
+  const body={ model:modelList[0], messages:history, max_tokens:2048,
+    temperature:(d.temp!=null?d.temp:0.8), top_p:(d.top_p!=null?d.top_p:0.95), stream:$("#stream").checked };
+  const btn=$("#btnSend"); btn.disabled=true;
+  const a=bubble("assistant",""); let content="",think="",nt=0; const t0=performance.now();
+  try{
+    const r=await fetch(LLAMA+"/v1/chat/completions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    if(!r.ok) throw new Error("HTTP "+r.status+" "+(await r.text()).slice(0,200));
+    if(body.stream && r.body){
+      const rd=r.body.getReader(), dec=new TextDecoder(); let buf="";
+      while(true){ const {done,value}=await rd.read(); if(done)break;
+        buf+=dec.decode(value,{stream:true}); const lines=buf.split("\n"); buf=lines.pop();
+        for(const ln of lines){ const s=ln.trim(); if(!s.startsWith("data:"))continue;
+          const data=s.slice(5).trim(); if(data==="[DONE]")continue; let j; try{j=JSON.parse(data);}catch{continue;}
+          const dd=(j.choices&&j.choices[0]&&j.choices[0].delta)||{};
+          if(dd.reasoning_content) think+=dd.reasoning_content;
+          if(dd.content){ content+=dd.content; nt++; }
+          a.innerHTML=(think? '<div class="think">💭 '+esc(think)+'</div>':"")+esc(content);
+          $("#chat").scrollTop=$("#chat").scrollHeight; } }
+    }else{
+      const j=await r.json(); const m=(j.choices&&j.choices[0]&&j.choices[0].message)||{};
+      think=m.reasoning_content||""; content=m.content||"";
+      a.innerHTML=(think? '<div class="think">💭 '+esc(think)+'</div>':"")+esc(content);
+    }
+    history.push({role:"assistant",content:content});
+    const dt=(performance.now()-t0)/1000; const m=document.createElement("div"); m.className="meta";
+    m.textContent="⏱ "+dt.toFixed(1)+" s · "+(nt?(nt/dt).toFixed(1)+" tok/s":"")+(think?" · myslel":""); a.after(m);
+  }catch(e){ a.textContent="⚠ Chyba: "+e.message; } finally{ btn.disabled=false; }
+}
+$("#btnSend").onclick=send;
+$("#inp").addEventListener("keydown",e=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();} });
+$("#inp").addEventListener("input",()=>{ const i=$("#inp"); i.style.height="auto"; i.style.height=Math.min(i.scrollHeight,140)+"px"; });
+
+function fillKV(sel){ const s=$(sel); s.innerHTML=""; KV_TYPES.forEach(t=>{const o=document.createElement("option");o.value=t;o.textContent=t;s.appendChild(o);}); }
+function setVal(id,v){ const el=$(id); if(el.type==="checkbox") el.checked=!!v; else el.value=(v===undefined||v===null?"":v); }
+function getVal(id){ const el=$(id); if(el.type==="checkbox") return el.checked; if(el.type==="number"){ return el.value===""?null:Number(el.value);} return el.value; }
+
+function applyCfgToForm(){
+  const d=cfg.defaults||{};
+  setVal("#s_mmproj_mode", d.mmproj==="off"?"off":"auto");
+  setVal("#s_imgtok", d.image_min_tokens);
+  setVal("#s_loadmode", d.load_mode||"auto");
+  setVal("#s_repack", d.repack!==false);
+  setVal("#s_fa", d.flash_attn||"auto");
+  fillKV("#s_ctk"); fillKV("#s_ctv");
+  setVal("#s_ctk", d.ctk||"q8_0"); setVal("#s_ctv", d.ctv||"q8_0");
+  setVal("#s_ctx", d.ctx); setVal("#s_th", d.threads); setVal("#s_tb", d.threads_batch);
+  setVal("#s_b", d.batch); setVal("#s_ub", d.ubatch); setVal("#s_np", d.parallel);
+  setVal("#s_rea", d.reasoning||"off"); setVal("#s_reafm", d.reasoning_format||"deepseek"); setVal("#s_reab", d.reasoning_budget);
+  setVal("#s_temp", d.temp); setVal("#s_topk", d.top_k); setVal("#s_topp", d.top_p);
+  setVal("#s_minp", d.min_p); setVal("#s_rep", d.repeat_penalty); setVal("#s_seed", d.seed);
+  setVal("#s_host", d.host||"127.0.0.1"); setVal("#s_port", d.port||8080);
+  setVal("#s_jinja", d.jinja!==false); setVal("#s_warmup", d.no_warmup===false);
+  setVal("#s_ctf", d.chat_template_file); setVal("#s_extra", d.extra_args);
+  $("#s_raw").value=JSON.stringify(cfg,null,2);
+}
+function formToCfg(){
+  const d=cfg.defaults||{};
+  d.mmproj=$("#s_mmproj_mode").value==="off"?"off":"auto"; d.image_min_tokens=getVal("#s_imgtok");
+  d.load_mode=$("#s_loadmode").value; d.repack=$("#s_repack").checked; d.flash_attn=$("#s_fa").value;
+  d.ctk=$("#s_ctk").value; d.ctv=$("#s_ctv").value;
+  d.ctx=getVal("#s_ctx"); d.threads=getVal("#s_th"); d.threads_batch=getVal("#s_tb");
+  d.batch=getVal("#s_b"); d.ubatch=getVal("#s_ub"); d.parallel=getVal("#s_np");
+  d.reasoning=$("#s_rea").value; d.reasoning_format=$("#s_reafm").value; d.reasoning_budget=getVal("#s_reab");
+  d.temp=getVal("#s_temp"); d.top_k=getVal("#s_topk"); d.top_p=getVal("#s_topp");
+  d.min_p=getVal("#s_minp"); d.repeat_penalty=getVal("#s_rep"); d.seed=getVal("#s_seed");
+  d.host=$("#s_host").value; d.port=getVal("#s_port");
+  d.jinja=$("#s_jinja").checked; d.no_warmup=!$("#s_warmup").checked;
+  d.chat_template_file=$("#s_ctf").value; d.extra_args=$("#s_extra").value;
+  cfg.defaults=d;
+}
+async function loadCfg(){ try{ const r=await fetch(BASE+"/api/settings",{cache:"no-store"}); cfg=await r.json(); applyCfgToForm(); }catch(e){ toast("Nepodarilo sa načítať nastavenia"); } }
+async function saveCfgObj(obj){
+  try{ const r=await fetch(BASE+"/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(obj)});
+    const j=await r.json(); if(j.status!=="ok") throw new Error(j.error||"?"); toast("Uložené ✔"); return true;
+  }catch(e){ toast("Chyba uloženia: "+e.message); return false; }
+}
+$("#btnSave").onclick=async()=>{ formToCfg(); if(await saveCfgObj(cfg)) applyCfgToForm(); };
+$("#btnSaveStart").onclick=async()=>{ formToCfg(); if(await saveCfgObj(cfg)){ applyCfgToForm(); startModel(); } };
+$("#btnRawReload").onclick=loadCfg;
+$("#btnRawSave").onclick=async()=>{ let o; try{ o=JSON.parse($("#s_raw").value); }catch(e){ toast("Neplatný JSON: "+e.message); return; }
+  if(await saveCfgObj(o)){ cfg=o; applyCfgToForm(); } };
+
+async function loadLog(){ try{ const r=await fetch(BASE+"/api/log",{cache:"no-store"}); const j=await r.json();
+  $("#logbox").textContent=j.log||"(prázdny)"; $("#logbox").scrollTop=$("#logbox").scrollHeight; }catch(e){ $("#logbox").textContent="chyba: "+e.message; } }
+$("#btnReloadLog").onclick=loadLog;
+
+(async ()=>{ await loadCfg(); await doScan(); await refreshServer();
+  setInterval(refreshServer,8000);
+  setInterval(()=>{ if($("#viewLog").style.display!=="none") loadLog(); },4000);
+})();
+</script>
+</body>
+</html>

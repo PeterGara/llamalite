@@ -1,0 +1,9 @@
+{
+  "name": "llamalite",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "serve": "cd scripts && python3 backend.py",
+    "scan": "cd scripts && python3 discover.py settings.json"
+  }
+}

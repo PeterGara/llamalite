@@ -1,0 +1,46 @@
+{
+  "server_url": "http://127.0.0.1:8080/v1",
+  "bin": "/root/llama/llama-b11960",
+  "scan_dirs": [
+    "/sdcard/Download",
+    "/sdcard/Download/Operit/models"
+  ],
+  "scan_depth": 3,
+  "defaults": {
+    "ctx": 16384,
+    "threads": 4,
+    "threads_batch": 4,
+    "batch": 2048,
+    "ubatch": 512,
+    "parallel": 1,
+    "flash_attn": "on",
+    "repack": true,
+    "load_mode": "mmap+mlock",
+    "ctk": "q8_0",
+    "ctv": "q8_0",
+    "mmproj": "auto",
+    "image_min_tokens": 1024,
+    "jinja": true,
+    "no_warmup": true,
+    "reasoning": "off",
+    "reasoning_format": "deepseek",
+    "reasoning_budget": "",
+    "temp": 0.8,
+    "top_k": 40,
+    "top_p": 0.95,
+    "min_p": 0.05,
+    "repeat_penalty": 1.0,
+    "seed": -1,
+    "alias": "",
+    "chat_template_file": "",
+    "host": "127.0.0.1",
+    "port": 8080,
+    "extra_args": ""
+  },
+  "overrides": {
+    "Qwen2.5-Omni-3B.Q8_0": { "ctx": 8192, "alias": "omni3b" },
+    "Qwen2.5-Omni-7B.Q4_K_M": { "ctx": 8192, "alias": "omni7b" },
+    "DeepSeek-V4-Pro-Qwen3.5-4B-UNCENSORED-heretic.i1-Q4_K_M": { "ctx": 16384, "alias": "ds4b" },
+    "DeepSeek-V4-Pro-Qwen3.5-9B-UNCENSORED-heretic.i1-Q4_K_M": { "ctx": 8192, "alias": "ds9b" }
+  }
+}

@@ -1,0 +1,5 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.Llamalite" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+</resources>
