@@ -1,0 +1,68 @@
+name: build-android-llama-server
+
+# Zkompiluje llama-server pre Android (arm64-v8a, bionic cez NDK) a prilozi
+# binarku + .so kniznice ako artifact. To sa potom zabali do APK (jniLibs).
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/workflows/build-android-server.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout llama.cpp
+        uses: actions/checkout@v4
+        with:
+          repository: ggml-org/llama.cpp
+          path: src
+          fetch-depth: 1
+
+      - name: Build llama-server for Android arm64-v8a
+        working-directory: src
+        shell: bash
+        run: |
+          set -e
+          NDK="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_ROOT}"
+          echo "NDK=$NDK"
+          ls "$NDK/build/cmake/android.toolchain.cmake"
+          cmake -B build-android \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DLLAMA_CURL=OFF \
+            -DLLAMA_BUILD_SERVER=ON \
+            -DGGML_OPENMP=OFF \
+            -DGGML_LLAMAFILE=OFF \
+            -DLLAMA_BUILD_TESTS=OFF \
+            -DLLAMA_BUILD_EXAMPLES=OFF \
+            -DLLAMA_BUILD_TOOLS=OFF \
+            -DLLAMA_BUILD_COMMON=ON
+          cmake --build build-android --target llama-server -j"$(nproc)"
+
+      - name: Package binary
+        shell: bash
+        run: |
+          set -e
+          OUT=androidsrv
+          mkdir -p "$OUT"
+          BIN=$(find src/build-android -name 'llama-server' -type f | head -1)
+          echo "binary: $BIN"
+          file "$BIN"
+          cp "$BIN" "$OUT/libllamaserver.so"
+          ls -la "$OUT"
+          echo "--- DT_NEEDED (ma byt prazdne/len systemove) ---"
+          (readelf -d "$BIN" | grep NEEDED || true)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-llama-server
+          path: androidsrv/
+          if-no-files-found: error
