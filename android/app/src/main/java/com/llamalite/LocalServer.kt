@@ -219,7 +219,11 @@ class LocalServer(private val ctx: Context, private val port: Int) {
 
     private fun asset(out: BufferedOutputStream, name: String, ctype: String) {
         try {
-            val bytes = ctx.assets.open(name).use { it.readBytes() }
+            // priorita: subor vo filesDir/web (da sa menit za behu, bez rebuildu),
+            // inak asset zabaleny v APK
+            val live = File(File(ctx.filesDir, "web"), name)
+            val bytes = if (live.isFile) live.readBytes()
+                        else ctx.assets.open(name).use { it.readBytes() }
             sendBytes(out, 200, ctype, bytes)
         } catch (e: Exception) {
             sendBytes(out, 404, "text/plain", "$name chyba".toByteArray())
