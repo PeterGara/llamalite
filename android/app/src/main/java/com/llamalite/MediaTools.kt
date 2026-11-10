@@ -146,7 +146,7 @@ object MediaTools {
             }
             return Pair(out, 16000)
         } catch (e: Exception) {
-            null
+            return null
         } finally {
             try { extractor.release() } catch (_: Exception) {}
         }
