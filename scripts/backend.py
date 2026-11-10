@@ -1,34 +1,29 @@
 #!/usr/bin/env python3
 # ============================================================
-#  backend.py - llamalite server
+#  backend.py - llamalite server (v2, multimodalny)
 #  * servuje index.html
-#  * API pre start/stop lokalneho llama-servera (cely argv)
-#  * API na citanie/zapis nastaveni (settings.json)
-#  * API na skenovanie modelov (discover.py)
+#  * API: start/stop modelu (cely argv), settings, scan, medzery
+#  * API: /upload (obrazok/audio/video -> base64 pre chat)
+#  * API: /tools/convert_video (ffmpeg -> snimky + audio wav)
+#  * API: /proxy (obchadza CORS: preposle chat request na llama-server)
 #
-#  Pouzitie:  python3 backend.py           (port 8181, PORT=... )
-#  Endpointy (GET, *.json):
-#     /                       UI
-#     /api/health
-#     /api/list               {profiles, running, current}
-#     /api/start?id=ID        start modelu
-#     /api/stop
-#     /api/status
-#     /api/settings           aktualne settings.json
-#     /api/scan               nacitane modely (discover)
-#  Endpoint (POST):
-#     /api/settings           ulozi novy settings.json (cely JSON)
+#  Spustenie:  python3 backend.py   (PORT=8181)
 # ============================================================
-import http.server, socketserver, json, os, subprocess, sys, urllib.parse
+import http.server, socketserver, json, os, subprocess, sys, urllib.parse, urllib.request, urllib.error, shutil
 
 HERE  = os.path.dirname(os.path.abspath(__file__))
 ROOT  = os.path.dirname(HERE)
 STATE = os.path.join(ROOT, ".state")
+UPLOADS = os.path.join(ROOT, ".state", "uploads")
 CFG   = os.path.join(HERE, "settings.json")
 LOG   = os.path.join(STATE, "server.log")
 PIDF  = os.path.join(STATE, "server.pid")
 PORT  = int(os.environ.get("PORT", "8181"))
-os.makedirs(STATE, exist_ok=True)
+os.makedirs(UPLOADS, exist_ok=True)
+
+IMG_EXT = {".jpg",".jpeg",".png",".webp",".gif",".bmp"}
+AUD_EXT = {".wav",".mp3",".ogg",".opus",".flac",".m4a",".aac"}
+VID_EXT = {".mp4",".mkv",".mov",".webm",".avi",".m4v",".3gp"}
 
 
 # ---------- pomocne ----------
@@ -84,7 +79,6 @@ def is_running():
     except Exception:
         return 0
     try:
-        # stav procesu (R/S/D..., 'Z' = zombie)
         stat = open("/proc/%d/stat" % pid).read()
         state = stat.split(") ", 1)[1].split()[0]
         if state == "Z":
@@ -98,11 +92,22 @@ def is_running():
         return 0
 
 
+def meminfo():
+    out = {}
+    try:
+        for ln in open("/proc/meminfo"):
+            k, v = ln.split(":", 1)
+            out[k] = int(v.strip().split()[0]) // 1024  # MB
+    except Exception:
+        pass
+    return {"total_mb": out.get("MemTotal", 0), "free_mb": out.get("MemFree", 0),
+            "avail_mb": out.get("MemAvailable", 0), "swap_total_mb": out.get("SwapTotal", 0),
+            "swap_free_mb": out.get("SwapFree", 0)}
+
+
 def start_model(mid):
-    cfg = load_cfg()
     kill_all_llama()
     import time; time.sleep(2)
-
     try:
         r = subprocess.run([sys.executable, os.path.join(HERE, "mkcmd.py"), CFG, mid, STATE],
                            capture_output=True, text=True, timeout=60)
@@ -115,24 +120,17 @@ def start_model(mid):
         if "=" in ln:
             k, v = ln.split("=", 1)
             env[k] = v.strip("'\"")
-
-    argvf = os.path.join(STATE, "argv")
-    with open(argvf) as f:
+    with open(os.path.join(STATE, "argv")) as f:
         args = [x for x in f.read().split("\n") if x != ""]
-
     binp = env.get("BIN", "/root/llama/llama-b11960")
     exe = os.path.join(binp, "llama-server")
     if not os.path.isfile(exe):
         return False, "binarka neexistuje: %s" % exe
-
     with open(LOG, "w") as lg:
-        proc = subprocess.Popen([exe] + args, cwd=binp,
-                                stdout=lg, stderr=subprocess.STDOUT,
+        proc = subprocess.Popen([exe] + args, cwd=binp, stdout=lg, stderr=subprocess.STDOUT,
                                 stdin=subprocess.DEVNULL, start_new_session=True)
     with open(PIDF, "w") as f:
         f.write(str(proc.pid))
-
-    # cakaj na "listening on"
     import time
     ok = False
     for _ in range(180):
@@ -155,14 +153,12 @@ def start_model(mid):
 
 
 def state_info():
-    cfg = load_cfg()
     try:
         prof = subprocess.run([sys.executable, os.path.join(HERE, "discover.py"), CFG],
                               capture_output=True, text=True, timeout=120)
         profiles = json.loads(prof.stdout) if prof.returncode == 0 else []
     except Exception:
         profiles = []
-    # aplikuj nastavenia -> active flag podla toho, co bezi
     pid = is_running()
     cur = 0
     if pid and os.path.exists(os.path.join(STATE, "argv")):
@@ -173,7 +169,93 @@ def state_info():
                     cur = p["id"]; break
         except Exception:
             pass
-    return {"profiles": profiles, "running": bool(pid) and bool(cur), "pid": pid, "current": cur}
+    return {"profiles": profiles, "running": bool(pid) and bool(cur), "pid": pid,
+            "current": cur, "mem": meminfo()}
+
+
+def classify(name):
+    ext = os.path.splitext(name)[1].lower()
+    if ext in IMG_EXT:
+        return "image"
+    if ext in AUD_EXT:
+        return "audio"
+    if ext in VID_EXT:
+        return "video"
+    return "other"
+
+
+def save_upload(name, data):
+    safe = "".join(c if (c.isalnum() or c in "._-") else "_" for c in os.path.basename(name))
+    p = os.path.join(UPLOADS, safe)
+    i = 2
+    while os.path.exists(p):
+        stem, ext = os.path.splitext(safe)
+        p = os.path.join(UPLOADS, "%s_%d%s" % (stem, i, ext)); i += 1
+    with open(p, "wb") as f:
+        f.write(data)
+    return p
+
+
+def convert_audio(path):
+    """Prevedie lubovolny audio na 16k mono wav (llama-server prijima toto)."""
+    if not shutil.which("ffmpeg"):
+        return ""
+    out = os.path.splitext(path)[0] + "_16k.wav"
+    try:
+        subprocess.run(["ffmpeg", "-y", "-i", path, "-vn", "-ac", "1", "-ar", "16000", out],
+                       capture_output=True, text=True, timeout=180)
+        if os.path.exists(out) and os.path.getsize(out) > 44:
+            return out
+    except Exception:
+        pass
+    return ""
+
+
+def convert_video(path, max_frames=6, audio=True):
+    """ffmpeg: vytiahne rovnomerne snimky (jpg) + audio (16k mono wav)."""
+    out = {"frames": [], "audio": "", "error": ""}
+    if not shutil.which("ffmpeg"):
+        out["error"] = "ffmpeg nie je nainstalovany"
+        return out
+    base = os.path.splitext(path)[0]
+    try:
+        # trvanie
+        pr = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                             "-of", "default=nk=1:nw=1", path], capture_output=True, text=True, timeout=30)
+        dur = float((pr.stdout or "0").strip() or 0)
+    except Exception:
+        dur = 0
+    # snimky
+    try:
+        if dur > 0 and max_frames > 1:
+            step = max(dur / max_frames, 0.1)
+            pattern = "%s_f%%02d.jpg" % base
+            subprocess.run(["ffmpeg", "-y", "-i", path, "-vf", "fps=1/%f,scale=768:-1" % step,
+                            "-frames:v", str(max_frames), pattern],
+                           capture_output=True, text=True, timeout=120)
+        else:
+            pattern = "%s_f%%02d.jpg" % base
+            subprocess.run(["ffmpeg", "-y", "-i", path, "-vf", "scale=768:-1",
+                            "-frames:v", str(max_frames), pattern],
+                           capture_output=True, text=True, timeout=120)
+        d = os.path.dirname(path)
+        stem = os.path.basename(base) + "_f"
+        for fn in sorted(os.listdir(d)):
+            if fn.startswith(stem) and fn.endswith(".jpg"):
+                out["frames"].append(os.path.join(d, fn))
+    except Exception as e:
+        out["error"] += "snimky: %s " % e
+    # audio
+    if audio:
+        try:
+            ap = base + "_audio.wav"
+            subprocess.run(["ffmpeg", "-y", "-i", path, "-vn", "-ac", "1", "-ar", "16000", ap],
+                           capture_output=True, text=True, timeout=180)
+            if os.path.exists(ap) and os.path.getsize(ap) > 44:
+                out["audio"] = ap
+        except Exception as e:
+            out["error"] += "audio: %s " % e
+    return out
 
 
 class H(http.server.BaseHTTPRequestHandler):
@@ -182,24 +264,26 @@ class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-    def _json(self, code, obj):
-        b = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+    def _raw(self, code, b, ctype):
+        if isinstance(b, str):
+            b = b.encode("utf-8")
         self.send_response(code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Type", ctype)
         self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Content-Length", str(len(b)))
         self.end_headers()
         self.wfile.write(b)
 
-    def _html(self, code, data):
-        if isinstance(data, str):
-            data = data.encode("utf-8")
-        self.send_response(code)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Content-Length", str(len(data)))
+    def _json(self, code, obj):
+        self._raw(code, json.dumps(obj, ensure_ascii=False), "application/json; charset=utf-8")
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "*")
         self.end_headers()
-        self.wfile.write(data)
 
     def do_GET(self):
         u = urllib.parse.urlparse(self.path)
@@ -207,10 +291,16 @@ class H(http.server.BaseHTTPRequestHandler):
 
         if path in ("/", "/index.html"):
             f = os.path.join(HERE, "index.html")
-            return self._html(200, open(f, "rb").read()) if os.path.exists(f) else self._html(404, "index.html chyba")
+            return self._raw(200, open(f, "rb").read(), "text/html; charset=utf-8") \
+                if os.path.exists(f) else self._raw(404, "index.html chyba", "text/plain")
+
+        if path == "/flags.json":
+            f = os.path.join(HERE, "flags.json")
+            return self._raw(200, open(f, "rb").read(), "application/json; charset=utf-8") \
+                if os.path.exists(f) else self._json(404, {"error": "flags.json chyba"})
 
         if path == "/api/health":
-            return self._json(200, {"status": "ok"})
+            return self._json(200, {"status": "ok", "mem": meminfo()})
 
         if path == "/api/list":
             return self._json(200, state_info())
@@ -219,7 +309,7 @@ class H(http.server.BaseHTTPRequestHandler):
             return self._json(200, {"profiles": state_info()["profiles"]})
 
         if path == "/api/status":
-            return self._json(200, {"running": bool(is_running())})
+            return self._json(200, {"running": bool(is_running()), "mem": meminfo()})
 
         if path == "/api/settings":
             try:
@@ -238,7 +328,7 @@ class H(http.server.BaseHTTPRequestHandler):
             n = kill_all_llama()
             try: os.remove(PIDF)
             except Exception: pass
-            return self._json(200, {"status": "ok", "killed": n})
+            return self._json(200, {"status": "ok", "killed": n, "mem": meminfo()})
 
         if path == "/api/log":
             try:
@@ -247,21 +337,101 @@ class H(http.server.BaseHTTPRequestHandler):
                 txt = "(ziadny log)"
             return self._json(200, {"log": txt})
 
+        if path == "/api/file":
+            # servuje uploadnuty subor (na nahlad)
+            p = (qs.get("path") or [""])[0]
+            p = os.path.normpath(p)
+            if p.startswith(UPLOADS) and os.path.isfile(p):
+                ext = os.path.splitext(p)[1].lower()
+                ct = "application/octet-stream"
+                if ext in (".jpg", ".jpeg"): ct = "image/jpeg"
+                elif ext == ".png": ct = "image/png"
+                elif ext == ".webp": ct = "image/webp"
+                elif ext in (".wav",): ct = "audio/wav"
+                elif ext in (".mp3",): ct = "audio/mpeg"
+                elif ext in (".mp4",): ct = "video/mp4"
+                return self._raw(200, open(p, "rb").read(), ct)
+            return self._raw(404, "neexistuje", "text/plain")
+
         return self._json(404, {"status": "error", "error": "not found"})
 
     def do_POST(self):
         u = urllib.parse.urlparse(self.path)
-        if u.path != "/api/settings":
-            return self._json(404, {"status": "error", "error": "not found"})
-        try:
-            ln = int(self.headers.get("Content-Length", 0) or 0)
-            obj = json.loads(self.rfile.read(ln).decode("utf-8"))
-            if "defaults" not in obj:
-                raise ValueError("chyba 'defaults'")
-            write_json_atomic(CFG, obj)
-            return self._json(200, {"status": "ok"})
-        except Exception as e:
-            return self._json(400, {"status": "error", "error": str(e)})
+        path = u.path
+        ln = int(self.headers.get("Content-Length", 0) or 0)
+        raw = self.rfile.read(ln) if ln else b""
+
+        if path == "/api/settings":
+            try:
+                obj = json.loads(raw.decode("utf-8"))
+                if "defaults" not in obj:
+                    raise ValueError("chyba 'defaults'")
+                write_json_atomic(CFG, obj)
+                return self._json(200, {"status": "ok"})
+            except Exception as e:
+                return self._json(400, {"status": "error", "error": str(e)})
+
+        if path == "/upload":
+            # hlavicka: X-Filename (URL-encoded)
+            name = urllib.parse.unquote(self.headers.get("X-Filename", "upload.bin"))
+            if not raw:
+                return self._json(400, {"status": "error", "error": "prazdny subor"})
+            p = save_upload(name, raw)
+            kind = classify(name)
+            res = {"status": "ok", "path": p, "name": os.path.basename(p),
+                   "kind": kind, "size": len(raw)}
+            if kind == "audio" and os.path.splitext(name)[1].lower() != ".wav":
+                conv = convert_audio(p)
+                if conv:
+                    res["converted"] = conv
+            if kind == "video":
+                conv = convert_video(p, max_frames=6, audio=True)
+                res["frames"] = [{"path": f, "name": os.path.basename(f)} for f in conv["frames"]]
+                res["audio"] = conv["audio"]
+                if conv["error"]:
+                    res["convert_error"] = conv["error"]
+            return self._json(200, res)
+
+        if path == "/api/convert_video":
+            try:
+                obj = json.loads(raw.decode("utf-8"))
+                p = obj.get("path", "")
+                if not (os.path.normpath(p).startswith(UPLOADS) and os.path.isfile(p)):
+                    return self._json(400, {"status": "error", "error": "neplatna cesta"})
+                conv = convert_video(p, int(obj.get("max_frames", 6)), bool(obj.get("audio", True)))
+                return self._json(200, {"status": "ok", "frames": conv["frames"],
+                                        "audio": conv["audio"], "error": conv["error"]})
+            except Exception as e:
+                return self._json(400, {"status": "error", "error": str(e)})
+
+        if path == "/proxy":
+            # telo = JSON pre llama-server; hlavicka X-Target = cielova URL
+            target = self.headers.get("X-Target", "")
+            if not target.startswith("http://127.0.0.1"):
+                return self._json(400, {"status": "error", "error": "neplatny target (len 127.0.0.1)"})
+            req = urllib.request.Request(target, data=raw, method="POST",
+                                         headers={"Content-Type": "application/json"})
+            try:
+                resp = urllib.request.urlopen(req, timeout=600)
+                # streamni odpoved
+                self.send_response(resp.status)
+                self.send_header("Content-Type", resp.headers.get("Content-Type", "application/json"))
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                while True:
+                    chunk = resp.read(2048)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+            except urllib.error.HTTPError as e:
+                body = e.read()
+                self._raw(e.code, body, "application/json")
+            except Exception as e:
+                self._json(502, {"status": "error", "error": str(e)})
+            return
+
+        return self._json(404, {"status": "error", "error": "not found"})
 
 
 class S(socketserver.ThreadingTCPServer):
@@ -270,5 +440,5 @@ class S(socketserver.ThreadingTCPServer):
 
 
 if __name__ == "__main__":
-    print("llamalite backend na http://127.0.0.1:%d" % PORT, flush=True)
+    print("llamalite backend (v2) na http://127.0.0.1:%d" % PORT, flush=True)
     S(("0.0.0.0", PORT), H).serve_forever()

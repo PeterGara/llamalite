@@ -1,0 +1,150 @@
+{
+  "categories": [
+    {
+      "title": "Model / mmproj",
+      "special": true,
+      "note": "mmproj sa priradí automaticky podľa názvu (auto/off/cesta).",
+      "fields": [
+        { "key": "mmproj-auto", "flag": "mmproj-auto", "type": "boolneg", "label": "mmproj-auto", "help": "auto-detekcia mmproj" },
+        { "key": "mmproj-offload", "flag": "mmproj-offload", "type": "boolneg", "label": "mmproj-offload" },
+        { "key": "image-min-tokens", "flag": "image-min-tokens", "type": "int", "label": "image-min-tokens", "help": "min tokenov na obrázok" },
+        { "key": "image-max-tokens", "flag": "image-max-tokens", "type": "int", "label": "image-max-tokens" },
+        { "key": "mtmd-batch-max-tokens", "flag": "mtmd-batch-max-tokens", "type": "int", "label": "mtmd-batch-max-tokens" },
+        { "key": "video-fps", "flag": "video-fps", "type": "float", "label": "video-fps", "help": "sn. za sek. pre video" }
+      ]
+    },
+    {
+      "title": "Výkon CPU",
+      "fields": [
+        { "key": "threads", "flag": "threads", "type": "int", "label": "threads (-t)" },
+        { "key": "threads-batch", "flag": "threads-batch", "type": "int", "label": "threads-batch (-tb)" },
+        { "key": "cpu-mask", "flag": "cpu-mask", "type": "text", "label": "cpu-mask (-C)" },
+        { "key": "cpu-range", "flag": "cpu-range", "type": "text", "label": "cpu-range (-Cr)" },
+        { "key": "cpu-strict", "flag": "cpu-strict", "type": "select", "options": ["", "0", "1"], "label": "cpu-strict" },
+        { "key": "prio", "flag": "prio", "type": "select", "options": ["", "low", "normal", "high", "realtime"], "label": "prio" },
+        { "key": "poll", "flag": "poll", "type": "select", "options": ["", "0", "1", "50", "100"], "label": "poll" },
+        { "key": "cpu-mask-batch", "flag": "cpu-mask-batch", "type": "text", "label": "cpu-mask-batch (-Cb)" },
+        { "key": "cpu-range-batch", "flag": "cpu-range-batch", "type": "text", "label": "cpu-range-batch (-Crb)" },
+        { "key": "prio-batch", "flag": "prio-batch", "type": "text", "label": "prio-batch" },
+        { "key": "poll-batch", "flag": "poll-batch", "type": "text", "label": "poll-batch" },
+        { "key": "numa", "flag": "numa", "type": "select", "options": ["", "distribute", "isolate", "numactl", "mirror"], "label": "numa" }
+      ]
+    },
+    {
+      "title": "Kontext / dávky",
+      "fields": [
+        { "key": "ctx-size", "flag": "ctx-size", "type": "int", "label": "ctx-size (-c)" },
+        { "key": "predict", "flag": "predict", "type": "int", "label": "predict (-n)", "help": "-1 = neobmedzene" },
+        { "key": "batch-size", "flag": "batch-size", "type": "int", "label": "batch-size (-b)" },
+        { "key": "ubatch-size", "flag": "ubatch-size", "type": "int", "label": "ubatch-size (-ub)" },
+        { "key": "keep", "flag": "keep", "type": "int", "label": "keep" },
+        { "key": "parallel", "flag": "parallel", "type": "int", "label": "parallel (-np)", "help": "1 = jedna KV cache" },
+        { "key": "cont-batching", "flag": "cont-batching", "type": "boolneg", "label": "cont-batching (-cb)" },
+        { "key": "kv-unified", "flag": "kv-unified", "type": "boolneg", "label": "kv-unified (-kvu)", "help": "1 KV cache pre všetky sloty" },
+        { "key": "swa-full", "flag": "swa-full", "type": "bool", "label": "swa-full" },
+        { "key": "context-shift", "flag": "context-shift", "type": "boolneg", "label": "context-shift" }
+      ]
+    },
+    {
+      "title": "Pamäť / načítanie",
+      "fields": [
+        { "key": "load-mode", "flag": "load-mode", "type": "select", "options": ["", "auto", "mmap", "mlock", "mmap+mlock"], "label": "load-mode (-lm)", "help": "auto/mmap/mlock/mmap+mlock" },
+        { "key": "lazy-mode", "flag": "lazy-mode", "type": "text", "label": "lazy-mode (-lzm)" },
+        { "key": "repack", "flag": "repack", "type": "boolneg", "label": "repack (-nr = vypnúť)" },
+        { "key": "no-host", "flag": "no-host", "type": "bool", "label": "no-host" },
+        { "key": "defrag-thold", "flag": "defrag-thold", "type": "float", "label": "defrag-thold (-dt)" },
+        { "key": "cache-ram", "flag": "cache-ram", "type": "int", "label": "cache-ram (-cram)", "help": "MB na prompt cache" },
+        { "key": "ctx-checkpoints", "flag": "ctx-checkpoints", "type": "int", "label": "ctx-checkpoints (-ctxcp)" },
+        { "key": "checkpoint-min-step", "flag": "checkpoint-min-step", "type": "int", "label": "checkpoint-min-step (-cms)" },
+        { "key": "cache-idle-slots", "flag": "cache-idle-slots", "type": "boolneg", "label": "cache-idle-slots" },
+        { "key": "lookup-cache-static", "flag": "lookup-cache-static", "type": "text", "label": "lookup-cache-static (-lcs)" },
+        { "key": "lookup-cache-dynamic", "flag": "lookup-cache-dynamic", "type": "text", "label": "lookup-cache-dynamic (-lcd)" }
+      ]
+    },
+    {
+      "title": "KV cache / attention",
+      "fields": [
+        { "key": "cache-type-k", "flag": "cache-type-k", "type": "select",
+          "options": ["f16","bf16","q8_0","q4_0","q4_1","q5_0","q5_1","iq4_nl","q6_k","q5_k"], "label": "cache-type-k (-ctk)" },
+        { "key": "cache-type-v", "flag": "cache-type-v", "type": "select",
+          "options": ["f16","bf16","q8_0","q4_0","q4_1","q5_0","q5_1","iq4_nl","q6_k","q5_k"], "label": "cache-type-v (-ctv)" },
+        { "key": "flash-attn", "flag": "flash-attn", "type": "select", "options": ["", "on", "off", "auto"], "label": "flash-attn (-fa)" },
+        { "key": "kv-offload", "flag": "kv-offload", "type": "boolneg", "label": "kv-offload (-kvo)" }
+      ]
+    },
+    {
+      "title": "Reasoning",
+      "fields": [
+        { "key": "reasoning", "flag": "reasoning", "type": "select", "options": ["", "on", "off", "auto"], "label": "reasoning (-rea)" },
+        { "key": "reasoning-format", "flag": "reasoning-format", "type": "select", "options": ["", "none", "deepseek", "deepseek-legacy"], "label": "reasoning-format" },
+        { "key": "reasoning-budget", "flag": "reasoning-budget", "type": "int", "label": "reasoning-budget", "help": "-1 = neobmedzene" },
+        { "key": "reasoning-effort", "flag": "reasoning-effort", "type": "text", "label": "reasoning-effort" }
+      ]
+    },
+    {
+      "title": "Sampling",
+      "fields": [
+        { "key": "seed", "flag": "seed", "type": "int", "label": "seed (-s)", "help": "-1 = náhodné" },
+        { "key": "temp", "flag": "temp", "type": "float", "label": "temp" },
+        { "key": "top-k", "flag": "top-k", "type": "int", "label": "top-k" },
+        { "key": "top-p", "flag": "top-p", "type": "float", "label": "top-p" },
+        { "key": "min-p", "flag": "min-p", "type": "float", "label": "min-p" },
+        { "key": "top-nsigma", "flag": "top-nsigma", "type": "float", "label": "top-nsigma" },
+        { "key": "typical", "flag": "typical", "type": "float", "label": "typical" },
+        { "key": "xtc-probability", "flag": "xtc-probability", "type": "float", "label": "xtc-probability" },
+        { "key": "xtc-threshold", "flag": "xtc-threshold", "type": "float", "label": "xtc-threshold" },
+        { "key": "repeat-last-n", "flag": "repeat-last-n", "type": "int", "label": "repeat-last-n" },
+        { "key": "repeat-penalty", "flag": "repeat-penalty", "type": "float", "label": "repeat-penalty" },
+        { "key": "presence-penalty", "flag": "presence-penalty", "type": "float", "label": "presence-penalty" },
+        { "key": "frequency-penalty", "flag": "frequency-penalty", "type": "float", "label": "frequency-penalty" },
+        { "key": "dry-multiplier", "flag": "dry-multiplier", "type": "float", "label": "dry-multiplier" },
+        { "key": "dry-base", "flag": "dry-base", "type": "float", "label": "dry-base" },
+        { "key": "dry-allowed-length", "flag": "dry-allowed-length", "type": "int", "label": "dry-allowed-length" },
+        { "key": "dry-penalty-last-n", "flag": "dry-penalty-last-n", "type": "int", "label": "dry-penalty-last-n" },
+        { "key": "dynatemp-range", "flag": "dynatemp-range", "type": "float", "label": "dynatemp-range" },
+        { "key": "dynatemp-exp", "flag": "dynatemp-exp", "type": "float", "label": "dynatemp-exp" },
+        { "key": "mirostat", "flag": "mirostat", "type": "select", "options": ["", "0", "1", "2"], "label": "mirostat" },
+        { "key": "mirostat-lr", "flag": "mirostat-lr", "type": "float", "label": "mirostat-lr" },
+        { "key": "mirostat-ent", "flag": "mirostat-ent", "type": "float", "label": "mirostat-ent" },
+        { "key": "adaptive-target", "flag": "adaptive-target", "type": "float", "label": "adaptive-target" },
+        { "key": "adaptive-decay", "flag": "adaptive-decay", "type": "float", "label": "adaptive-decay" }
+      ]
+    },
+    {
+      "title": "Gramatika / JSON",
+      "fields": [
+        { "key": "grammar", "flag": "grammar", "type": "text", "label": "grammar" },
+        { "key": "grammar-file", "flag": "grammar-file", "type": "text", "label": "grammar-file" },
+        { "key": "json-schema", "flag": "json-schema", "type": "text", "label": "json-schema (-j)" },
+        { "key": "json-schema-file", "flag": "json-schema-file", "type": "text", "label": "json-schema-file (-jf)" },
+        { "key": "logit-bias", "flag": "logit-bias", "type": "text", "label": "logit-bias (-l)" },
+        { "key": "ignore-eos", "flag": "ignore-eos", "type": "bool", "label": "ignore-eos" },
+        { "key": "chat-template", "flag": "chat-template", "type": "text", "label": "chat-template" },
+        { "key": "chat-template-file", "flag": "chat-template-file", "type": "text", "label": "chat-template-file" },
+        { "key": "jinja", "flag": "jinja", "type": "boolneg", "label": "jinja" }
+      ]
+    },
+    {
+      "title": "Server",
+      "fields": [
+        { "key": "host", "flag": "host", "type": "text", "label": "host" },
+        { "key": "port", "flag": "port", "type": "int", "label": "port" },
+        { "key": "api-key", "flag": "api-key", "type": "text", "label": "api-key" },
+        { "key": "timeout", "flag": "timeout", "type": "int", "label": "timeout (s)" },
+        { "key": "threads-http", "flag": "threads-http", "type": "int", "label": "threads-http" },
+        { "key": "reuse-port", "flag": "reuse-port", "type": "bool", "label": "reuse-port" },
+        { "key": "cors-origins", "flag": "cors-origins", "type": "text", "label": "cors-origins" },
+        { "key": "metrics", "flag": "metrics", "type": "bool", "label": "metrics (prometheus)" }
+      ]
+    },
+    {
+      "title": "Špeciálne",
+      "fields": [
+        { "key": "warmup", "flag": "warmup", "type": "boolneg", "label": "warmup pri štarte" },
+        { "key": "verbose", "flag": "verbose", "type": "bool", "label": "verbose (-v)" },
+        { "key": "log-disable", "flag": "log-disable", "type": "bool", "label": "log-disable" },
+        { "key": "log-file", "flag": "log-file", "type": "text", "label": "log-file" }
+      ]
+    }
+  ]
+}
