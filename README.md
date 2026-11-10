@@ -43,6 +43,43 @@ serve.sh ─► scripts/backend.py  (HTTP server + API, port 8181)
 llama-server (port 8080)  ◄── /v1/chat/completions ◄── index.html (chat)
 ```
 
+## Multimodalita
+V chate môžeš priložiť **obrázok, audio aj video** (tlačidlo 📎):
+- **obrázok** → pošle sa ako `image_url` (base64)
+- **audio** (mp3/m4a/…) → automaticky sa prevedie na **16 kHz mono wav** (llama-server berie len wav) a pošle ako `input_audio`
+- **video** → `ffmpeg` vytiahne **N snímok** (nastaviteľné) + **audio stopu**; snímky sa pošlu ako obrázky, audio ako zvuk
+
+Funguje to s multimodálnymi modelmi (mmproj) — overené na **Qwen2.5-Omni 3B**:
+obrázok → „Farben: Rot.", audio → rozpoznané. POZOR: vision/audio enkód na CPU
+je pomalý (obrázok ~1 min), takže prvý multimodálny dotaz trvá.
+
+## Stop generovania
+Počas odpovede sa zobrazí **■ Stop** — preruší stream (AbortController) a nechá
+už napísaný text.
+
+## Všetky nastavenia
+Záložka **Nastavenia** je generovaná z `scripts/flags.json` a obsahuje **~92
+reálnych prepínačov llama-servera** v kategóriách (CPU, kontext, pamäť, KV cache,
+reasoning, sampling, gramatika, server, …). Viď `flags.json`. **Nevyplnené pole =
+prepínač sa vynechá** (nechá sa default llama-servera). Plus špeciálne:
+`mmproj`, `alias`, `extra_args` (voľný text na čokoľvek ďalšie) a per-model
+`overrides` (v „Pokročilé → celý JSON").
+
+Klúč nastavenia = názov flagu **bez pomlčiek** (napr. `ctx-size`, `cache-type-k`,
+`flash-attn`). `true` = zapnuté, `false` = vypnuté, číslo/text = hodnota.
+
+## Android apka (bez Operitu / proot)
+Cieľ: **natívna** apka, ktorá sama spustí `llama-server` (Android NDK binárka)
+a všetko potrebné — žiadny Python, žiadny proot.
+
+- `.github/workflows/build-android-server.yml` — zkompiluje **statickú** arm64
+  binárku `llama-server` cez Android NDK (bionic) a priloží ju ako artifact.
+  APK ju zabalí do `jniLibs/arm64-v8a/libllamaserver.so` a spustí cez
+  `ProcessBuilder` (exec z natívneho lib dir).
+
+Stav: binárka sa builduje na GitHube; natívna časť apky (výber modelu, Start/Stop,
+config) sa dopĺňa.
+
 ## Súbory
 ```
 llamalite/
