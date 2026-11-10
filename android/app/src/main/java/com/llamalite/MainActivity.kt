@@ -57,6 +57,22 @@ class MainActivity : AppCompatActivity() {
         srv.start()
         server = srv
 
+        // dev: ak je na sdcard pripravene UI, pouzijeme ho (bez rebuildu)
+        Thread {
+            try {
+                val src = java.io.File("/sdcard/Download/llamalite-ui")
+                if (src.isDirectory) {
+                    val dst = java.io.File(applicationContext.filesDir, "web")
+                    dst.mkdirs()
+                    src.listFiles()?.forEach { f ->
+                        if (f.isFile && (f.name.endsWith(".html") || f.name.endsWith(".json"))) {
+                            f.copyTo(java.io.File(dst, f.name), overwrite = true)
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }.start()
+
         // prva inicializacia configu + model scan na pozadi (aby web hned videl data)
         Thread {
             try {

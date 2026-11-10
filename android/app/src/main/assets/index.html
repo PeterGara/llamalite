@@ -158,7 +158,7 @@ let abortCtl=null;
 
 function toast(m){ const t=$("#toast"); t.textContent=m; t.classList.add("show"); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("show"),2500); }
 function dot(on){ $("#dot").classList.toggle("on", !!on); }
-function esc(s){var M={38:"&amp;",60:"&lt;",62:"&gt;",34:String.fromCharCode(38)+"quot;"};return (s||"").replace(/[&<>"]/g,function(c){return M[c.charCodeAt(0)]}); }
+function esc(s){s=(s==null?"":""+s);var o="";for(var i=0;i<s.length;i++){var c=s[i];if(c==="&")o+="&amp;";else if(c==="<")o+="&lt;";else if(c===">")o+="&gt;";else if(c==='"')o+="&quot;";else o+=c;}return o;}
 
 function tab(name){
   for(const n of ["Chat","Set","Log"]) $("#tab"+n).classList.toggle("act", n===name);
