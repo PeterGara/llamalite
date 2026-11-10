@@ -142,7 +142,7 @@ class LocalServer(private val ctx: Context, private val port: Int) {
         head.append("Cache-Control: no-store\r\n")
         head.append("Access-Control-Allow-Origin: *\r\n")
         head.append("Content-Length: ${body.size}\r\n")
-        head.append("Connection: keep-alive\r\n\r\n")
+        head.append("Connection: close\r\n\r\n")
         out.write(head.toString().toByteArray())
         out.write(body)
     }
@@ -305,7 +305,7 @@ class LocalServer(private val ctx: Context, private val port: Int) {
             head.append("Cache-Control: no-store\r\n")
             head.append("Access-Control-Allow-Origin: *\r\n")
             head.append("Transfer-Encoding: chunked\r\n")
-            head.append("Connection: keep-alive\r\n\r\n")
+            head.append("Connection: close\r\n\r\n")
             out.write(head.toString().toByteArray())
             out.flush()
             val buf = ByteArray(4096)
