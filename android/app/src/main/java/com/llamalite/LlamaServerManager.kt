@@ -3,12 +3,12 @@ package com.llamalite
 import android.content.Context
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
- * Drzi jeden bezci llama-server proces + jeho argv/log.
- * Binarka je zabalena v APK ako jniLibs/arm64-v8a/libllamaserver.so
- * a Android ju extrahuje do nativeLibraryDir (odtial sa da spustit).
+ * Drzi bezci llama-server proces (binarka v APK ako jniLibs/arm64-v8a/libllamaserver.so,
+ * Android ju extrahuje do nativeLibraryDir). Start/Stop/Log + zistenie stavu.
  */
 object LlamaServerManager {
 
@@ -23,63 +23,38 @@ object LlamaServerManager {
 
     fun logFile(ctx: Context): File = File(ctx.filesDir, "server.log")
 
-    /** Poskladá argv pre llama-server z nastavení. */
-    fun buildArgs(s: Settings): List<String> {
-        val a = ArrayList<String>()
-        a += "-m"; a += s.modelPath
-        if (s.mmprojPath.isNotBlank() && File(s.mmprojPath).exists()) {
-            a += "--mmproj"; a += s.mmprojPath
-        }
-        a += "--ctx-size"; a += s.ctx.toString()
-        a += "--threads"; a += s.threads.toString()
-        a += "--threads-batch"; a += s.threads.toString()
-        a += "--parallel"; a += "1"
-        a += "--load-mode"; a += s.loadMode
-        a += "--flash-attn"; a += s.flashAttn
-        a += "--cache-type-k"; a += s.ctk
-        a += "--cache-type-v"; a += s.ctv
-        if (s.repack) a += "--repack" else a += "--no-repack"
-        a += "--no-warmup"
-        a += "--jinja"
-        if (s.reasoning) { a += "--reasoning"; a += "on"; a += "--reasoning-format"; a += "deepseek" }
-        else { a += "--reasoning"; a += "off" }
-        a += "--host"; a += "127.0.0.1"
-        a += "--port"; a += s.port.toString()
-        if (s.alias.isNotBlank()) { a += "--alias"; a += s.alias }
-        for (tok in s.extraArgs.split(Regex("\\s+")).filter { it.isNotBlank() }) a += tok
-        return a
-    }
+    fun isRunning(): Boolean = running
 
-    /** Spusti server; vrati "" ak OK, inak chybu. Blokuje kym nenabehne (max ~180 s). */
+    /** Skontroluje, ci na porte odpoveda llama-server (/v1/models). */
+    fun portAlive(port: Int): Boolean = try {
+        val c = URL("http://127.0.0.1:$port/v1/models").openConnection() as HttpURLConnection
+        c.connectTimeout = 1200; c.readTimeout = 1200
+        val code = c.responseCode
+        c.disconnect()
+        code in 200..299
+    } catch (e: Exception) { false }
+
     @Synchronized
-    fun start(ctx: Context, s: Settings): String {
+    fun start(ctx: Context, cfg: org.json.JSONObject, mid: String): String {
         stop()
-        val bin = binPath(ctx)
-        val binFile = File(bin)
-        if (!binFile.exists()) return "Binarka chyba: $bin (az APK obsahuje llama-server)"
-        binFile.setExecutable(true)
-        if (!File(s.modelPath).exists()) return "Model neexistuje: ${s.modelPath}"
+        val bin = File(binPath(ctx))
+        if (!bin.exists()) return "Binarka chyba: ${bin.absolutePath} (APK musi obsahovat llama-server)"
 
-        val args = buildArgs(s)
+        val cmd = try { Cli.build(cfg, mid) } catch (e: Exception) { return e.message ?: "chyba pri skladani príkazu" }
         val lf = logFile(ctx)
-        lf.writeText("argv: " + args.joinToString(" ") + "\n")
+        lf.writeText("argv: " + cmd.argv.joinToString(" ") + "\n")
 
         return try {
-            val pb = ProcessBuilder(listOf(bin) + args)
+            val pb = ProcessBuilder(listOf(bin.absolutePath) + cmd.argv)
             pb.redirectErrorStream(true)
             pb.environment()["LD_LIBRARY_PATH"] = ctx.applicationInfo.nativeLibraryDir
             pb.directory(ctx.filesDir)
             val p = pb.start()
             proc = p
-            // zapisuj log do suboru vlaknom
             Thread {
-                try {
-                    val out = FileOutputStream(lf, true)
-                    p.inputStream.copyTo(out)
-                } catch (_: Exception) {}
+                try { FileOutputStream(lf, true).use { out -> p.inputStream.copyTo(out) } } catch (_: Exception) {}
             }.start()
 
-            // cakaj na "listening on"
             var ok = false
             val t0 = System.currentTimeMillis()
             while (System.currentTimeMillis() - t0 < 180_000) {
@@ -88,7 +63,7 @@ object LlamaServerManager {
                 if (!p.isAlive) break
             }
             running = ok
-            if (ok) "" else tailLog(ctx)
+            if (ok) "" else (tailLog(ctx) ?: "server sa nenastartoval")
         } catch (e: Exception) {
             running = false
             "Spustenie zlyhalo: ${e.message}"
@@ -102,17 +77,22 @@ object LlamaServerManager {
         running = false
         try {
             p?.destroy()
-            Thread.sleep(300)
+            Thread.sleep(400)
             if (p?.isAlive == true) p.destroyForcibly()
+        } catch (_: Exception) {}
+        // poistka: pozabi pripadne sirotske llama-server procesy (v ramci nasho uid)
+        try {
+            for (pid in File("/proc").list() ?: emptyArray()) {
+                if (!pid.all { it.isDigit() }) continue
+                val cl = File("/proc/$pid/cmdline").readBytes().toString(Charsets.UTF_8).replace('\u0000', ' ')
+                if (cl.contains("libllamaserver.so")) {
+                    try { android.os.Process.killProcess(pid.toInt()) } catch (_: Exception) {}
+                }
+            }
         } catch (_: Exception) {}
     }
 
-    fun tailLog(ctx: Context, n: Int = 15): String {
-        return try {
-            logFile(ctx).readLines().takeLast(n).joinToString("\n")
-        } catch (e: Exception) { lastError }
-    }
-
-    /** True, ak binarka je v APK pritomna. */
-    fun hasBinary(ctx: Context): Boolean = File(binPath(ctx)).exists()
+    fun tailLog(ctx: Context, n: Int = 15): String = try {
+        logFile(ctx).readLines().takeLast(n).joinToString("\n")
+    } catch (e: Exception) { lastError }
 }

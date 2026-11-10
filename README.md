@@ -1,139 +1,97 @@
 # llamalite
 
-Lokálny chat s **llama.cpp** modelmi na telefóne — **bez Operitu** a bez obrovského
-systémového promptu. Naskenuje **všetky** `.gguf` na sdcard, ku každému modelu
-automaticky priradí `mmproj` a cez jednoduchý web nastavíš **všetko** (kontext,
-mmap/mlock, repack, flash-attn, KV cache, reasoning, sampling, sloty, batch…).
+**Jedna Android apka** — lokálny chat s **llama.cpp** modelmi priamo na telefóne,
+**bez Operitu** a bez obrovského systémového promptu. Naskenuje **všetky** `.gguf`
+na sdcard, ku každému modelu automaticky priradí `mmproj`, a v appke máš **chat +
+multimediálny upload (text / obrázok / audio / video) + všetky nastavenia
+llama-servera + Start/Stop**.
 
 ## Prečo
 Operit posiela na začiatku každého requestu veľký systémový prompt + definície
 nástrojov + pamäť (2000–4000 tokenov). Na CPU-only telefóne to zabije prefill
 (desiatky sekúnd) a malý model sa „zasekne“. llamalite pošle len to, čo napíšeš.
 
-## Dve možnosti
-1. **Vstavané WebUI llama-servera** — engine b11960 ho má. Po štarte servera
-   otvor v prehliadači `http://127.0.0.1:8080` (chat + nastavenia + streaming).
-2. **llamalite** (`scripts/`) — minimalistický chat + celý panel nastavení,
-   prepínanie modelov, štart/stop servera, log. Batériová verzia (bez repacku
-   by bol prefill pomalý, ale to necháva na tebe).
+## Jedna apka = všetko
+Apka `com.llamalite` obsahuje **celý web aj llama-server binárku**:
 
-## Rýchly štart
-```bash
-# web (backend + UI) na porte 8181
-bash serve.sh
-
-# v prehliadači otvor:  http://127.0.0.1:8181
-#   → vyber model v selecte → ▶ Start → píš v chate
-
-# zastaviť
-bash stop-web.sh
+```
+ikona apky
+   │
+   ├─ WebView (chat + nastavenia + upload)  ← servuje sa z vstavaného servera
+   ├─ LocalServer (Kotlin HTTP server na 127.0.0.1:19778)
+   │       ├─ /api/scan        ModelScan   → .gguf modely + auto mmproj
+   │       ├─ /api/start       Cli.build   → argv → spustí llama-server
+   │       ├─ /api/stop        zabije server (uvoľní RAM)
+   │       ├─ /api/settings    config.json (všetky nastavenia)
+   │       ├─ /upload          text/obrázok/audio/video (MediaCodec → wav/snímky)
+   │       ├─ /api/file        náhľady príloh
+   │       └─ /proxy           preposiela chat na llama-server (bez CORS)
+   └─ llama-server (binárka v APK, port 19777)
 ```
 
-Web ťa pustí aj k serveru — pozri taby **Chat / Nastavenia / Log**.
+**Žiadny Python, žiadny proot, žiadny terminál.** Klik na ikonu → celé UI.
+Žiadne druhé riešenie — web verzia (`scripts/`) už neexistuje.
 
-## Ako to funguje
-```
-serve.sh ─► scripts/backend.py  (HTTP server + API, port 8181)
-                 │
-                 ├─ /api/scan      discover.py  → nájde .gguf modely + mmproj
-                 ├─ /api/start     mkcmd.py zloží argv → spustí llama-server
-                 ├─ /api/settings  čítanie/zápis settings.json
-                 └─ /            index.html (UI)
+## Unikátne porty
+Zámerne **mimo bežných** (8080/8081), aby nič nekolidovalo:
+- **19777** — llama-server
+- **19778** — vstavaný web (WebView)
 
-llama-server (port 8080)  ◄── /v1/chat/completions ◄── index.html (chat)
-```
+## Multimodalita (bez ffmpeg — čisto Android)
+V chate priložíš cez 📎 **akýkoľvek súbor**:
+- **text** (.txt/.md/.csv/.json/.py…) → vloží sa do správy ako text (max 200 kB)
+- **obrázok** → `image_url` (base64)
+- **audio** (mp3/m4a/ogg/flac/…) → `MediaCodec` dekóduje → **16 kHz mono WAV** → `input_audio`
+- **video** → `MediaMetadataRetriever` vytiahne **N snímok** + `MediaCodec` audio stopu
 
-## Multimodalita
-V chate môžeš priložiť **obrázok, audio aj video** (tlačidlo 📎):
-- **obrázok** → pošle sa ako `image_url` (base64)
-- **audio** (mp3/m4a/…) → automaticky sa prevedie na **16 kHz mono wav** (llama-server berie len wav) a pošle ako `input_audio`
-- **video** → `ffmpeg` vytiahne **N snímok** (nastaviteľné) + **audio stopu**; snímky sa pošlu ako obrázky, audio ako zvuk
-
-Funguje to s multimodálnymi modelmi (mmproj) — overené na **Qwen2.5-Omni 3B**:
-obrázok → „Farben: Rot.", audio → rozpoznané. POZOR: vision/audio enkód na CPU
-je pomalý (obrázok ~1 min), takže prvý multimodálny dotaz trvá.
-
-## Stop generovania
-Počas odpovede sa zobrazí **■ Stop** — preruší stream (AbortController) a nechá
-už napísaný text.
+Funguje s multimodálnymi modelmi (mmproj) — overené na **Qwen2.5-Omni 3B**.
+Vision/audio enkód na CPU je pomalý (obrázok ~1 min), prvý dotaz trvá.
 
 ## Všetky nastavenia
-Záložka **Nastavenia** je generovaná z `scripts/flags.json` a obsahuje **~92
+Záložka **Nastavenia** je generovaná z `assets/flags.json` a obsahuje **~92
 reálnych prepínačov llama-servera** v kategóriách (CPU, kontext, pamäť, KV cache,
-reasoning, sampling, gramatika, server, …). Viď `flags.json`. **Nevyplnené pole =
-prepínač sa vynechá** (nechá sa default llama-servera). Plus špeciálne:
-`mmproj`, `alias`, `extra_args` (voľný text na čokoľvek ďalšie) a per-model
-`overrides` (v „Pokročilé → celý JSON").
+reasoning, sampling, gramatika, server, …). **Nevyplnené pole = prepínač sa
+vynechá** (default llama-servera). Plus špeciálne: `mmproj`, `alias`,
+`extra_args`, per-model `overrides` (v „Pokročilé → celý JSON“).
 
-Klúč nastavenia = názov flagu **bez pomlčiek** (napr. `ctx-size`, `cache-type-k`,
+Kľúč nastavenia = názov flagu **bez pomlčiek** (`ctx-size`, `cache-type-k`,
 `flash-attn`). `true` = zapnuté, `false` = vypnuté, číslo/text = hodnota.
 
-## Android apka (bez Operitu / proot)
-Cieľ: **natívna** apka, ktorá sama spustí `llama-server` (Android NDK binárka)
-a všetko potrebné — žiadny Python, žiadny proot.
+## Build
+GitHub Actions (`.github/workflows/build-apk.yml`) na `main`:
+1. zkompiluje **statickú** arm64 `llama-server` cez Android NDK (bionic)
+2. zabalí ju do `android/app/src/main/jniLibs/arm64-v8a/libllamaserver.so`
+3. postaví + podpíše APK → artifact **llamalite-apk**
 
-- `.github/workflows/build-android-server.yml` — zkompiluje **statickú** arm64
-  binárku `llama-server` cez Android NDK (bionic) a priloží ju ako artifact.
-  APK ju zabalí do `jniLibs/arm64-v8a/libllamaserver.so` a spustí cez
-  `ProcessBuilder` (exec z natívneho lib dir).
-
-Stav: binárka sa builduje na GitHube; natívna časť apky (výber modelu, Start/Stop,
-config) sa dopĺňa.
+`push` do `main` (alebo ručne) = nový build (~12 min).
 
 ## Súbory
 ```
 llamalite/
-  serve.sh              spustí backend (port 8181)
-  stop-web.sh           zastaví backend + llama-server
-  scripts/
-    index.html          UI (chat, model picker, celý panel nastavení, log)
-    backend.py          HTTP server + API (scan/start/stop/settings/log)
-    discover.py         sken sdcard → modely + auto-priradenie mmproj
-    mkcmd.py            settings.json → argv pre llama-server
-    settings.json       všetky nastavenia (defaults + overrides per model)
-  android/              zdroják tenkej natívnej apky (Kotlin + WebView)
-  .github/workflows/    build APK na GitHube (Actions)
-  .state/               logy + pid (negitovať)
+  android/
+    app/src/main/
+      assets/index.html            UI (chat, upload, celý panel nastavení, log)
+      assets/flags.json            spec ~92 prepínačov (poháňa formulár)
+      java/com/llamalite/
+        MainActivity.kt            WebView + spustí LocalServer
+        LocalServer.kt             vstavaný HTTP server + API + proxy
+        Cli.kt                     config → argv pre llama-server (mkcmd)
+        ModelScan.kt               sken sdcard → modely + auto mmproj (discover)
+        MediaTools.kt              audio→wav, video→snímky+audio, klasifikácia
+        LlamaServerManager.kt      Start/Stop/Log llama-server procesu
+        Config.kt                  čítanie/zápis config.json (+ porty)
+  .github/workflows/  build APK na GitHube (Actions)
 ```
 
-## Nastavenia (settings.json → tab „Nastavenia“)
-Všetko sa ukladá do `scripts/settings.json`. Kľúčová časť `defaults`:
-
-| skupina | kľúč → flag | popis |
-|---|---|---|
-| model | `mmproj` (`auto`/`off`/cesta), `image_min_tokens` | vision projektor |
-| pamäť | `load_mode` (`auto`/`mmap`/`mlock`/`mmap+mlock`), `repack` (bool) | načítanie, ARM dotprod |
-| výkon | `ctx`(`-c`), `threads`(`-t`), `threads_batch`(`-tb`), `batch`(`-b`), `ubatch`(`-ub`), `parallel`(`-np`) | kontext a dávky |
-| KV cache | `ctk`, `ctv` | typ KV cache (f16/q8_0/q4_0/…) |
-| flash | `flash_attn` (`on`/`off`/`auto`) | flash attention |
-| reasoning | `reasoning` (`on`/`off`/`auto`), `reasoning_format`, `reasoning_budget` | myslenie |
-| sampling | `temp`, `top_k`, `top_p`, `min_p`, `repeat_penalty`, `seed` | defaulty servera |
-| server | `host`, `port`, `jinja`, `no_warmup` (bool), `chat_template_file`, `extra_args` | ostatné |
-
-**`overrides`** = per-model nastavenia podľa `id` (id sa odvodí z názvu súboru
-bez `.gguf`). Tam sa dajú prepísať ľubovoľné polia pre konkrétny model.
-**`extra_args`** = voľný text, rozdelí sa ako shell → čokoľvek, čo llama-server
-podporuje a nie je vo formulári (`--swa-full`, `--context-shift`, `--no-jinja`…).
-
 ## Modely
-Sken prejde `scan_dirs` (default `/sdcard/Download` + `Operit/models…`, hĺbka 3)
+Sken prejde `/sdcard/Download` + `/sdcard/Download/Operit/models` (hĺbka 3)
 a nájde každý `.gguf`. Súbory s `mmproj`/`projector` v názve berie ako projektory
-a priradí ich k modelu v tej istej zložke (podľa spoločných tokenov v názve).
-Každý model dostane `id` (názov bez prípony) — ten použi v `overrides`.
-
-> ⚠ Ak hlavička súboru nie je `GGUF`, model je označený `[POSKODENY]` a `mkcmd.py`
-> ho odmietne spustiť. Typicky nedokončený download.
+a priradí ich k modelu v tej istej zložke. Ak hlavička nie je `GGUF`, model je
+označený `⚠ POŠKODENÝ` a odmietne sa spustiť (typicky nedokončený download).
 
 ## achillova pata telefónu: RAM
-- Model + `-c 16384` na Qwen3.5 (hybrid) = iba ~544 MB KV (KV rastie s pár
-  full-attention vrstvami). Bežné 4–9B modely majú KV drahšie → drž `ctx` nižšie.
-- `mmap+mlock` drží model v RAM (rýchle, ale žerie). `mmap` šetrí RAM (stranky z disku).
-- `repack on` zrýchli prefill ~2,7× (dlhší štart ~14 s, viac RAM).
-
-## Android apka
-`android/` = tenký **WebView** shell (Kotlin). Otvorí `http://127.0.0.1:8181`.
-Adresu zmeníš long-pressom (uloží sa do prefs) — vieš tam dať aj
-`http://127.0.0.1:8080` (vstavané WebUI). Build na GitHube cez `.github/workflows/build-apk.yml`.
+- `mmap` šetrí RAM (stránky z disku), `mlock` drží v RAM (rýchle, ale žerie).
+- `repack on` zrýchli prefill ~2,7× (dlhší štart, viac RAM).
 
 ## Licencia
 MIT — viz `LICENSE`.

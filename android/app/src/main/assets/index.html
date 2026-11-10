@@ -95,9 +95,9 @@
     <div id="chat"></div>
     <div id="chips"></div>
     <div class="row">
-      <button class="ghost" id="btnAttach" title="Pripojiť obrázok / audio / video">📎</button>
-      <input type="file" id="file" multiple accept="image/*,audio/*,video/*,.wav,.mp3,.ogg,.opus,.m4a,.mp4,.mkv,.mov,.webm" style="display:none">
-      <textarea id="inp" placeholder="Napíš správu… (Enter = odoslať, 📎 = priložiť)"></textarea>
+      <button class="ghost" id="btnAttach" title="Pripojiť obrázok / audio / video / text">📎</button>
+      <input type="file" id="file" multiple accept="*/*" style="display:none">
+      <textarea id="inp" placeholder="Napíš správu... (Enter = odoslať, 📎 = priložiť)"></textarea>
       <button id="btnStopGen" class="danger" style="display:none">■ Stop</button>
       <button id="btnSend">Poslať</button>
     </div>
@@ -105,7 +105,7 @@
 
   <!-- NASTAVENIA -->
   <div id="settings">
-    <p class="hint" id="setHint">Načítavam…</p>
+    <p class="hint" id="setHint">Načítavam...</p>
     <div id="setForm"></div>
 
     <details class="cat"><summary>Chat (len pre túto appku)</summary>
@@ -126,7 +126,7 @@
       </div>
     </details>
 
-    <details class="cat"><summary>Pokročilé (celý settings.json)</summary>
+    <details class="cat"><summary>Pokročilé (celý config JSON)</summary>
       <div class="grid"><div class="f full"><textarea id="s_raw" rows="12" spellcheck="false"></textarea></div></div>
       <div style="display:flex; gap:8px; padding-bottom:12px;">
         <button id="btnRawReload" class="ghost">Načítať JSON</button>
@@ -143,7 +143,7 @@
   <!-- LOG -->
   <div id="viewLog" style="display:none; flex:1; overflow-y:auto; padding:12px;">
     <button class="ghost sm" id="btnReloadLog">⟳ Obnoviť</button>
-    <pre class="log" id="logbox" style="margin-top:8px;">(načítavam…)</pre>
+    <pre class="log" id="logbox" style="margin-top:8px;">(načítavam...)</pre>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -152,7 +152,7 @@
 "use strict";
 const $ = s => document.querySelector(s);
 const BASE = location.origin;
-const LLAMA = localStorage.getItem("ll_base") || "http://127.0.0.1:8080";
+const LLAMA = localStorage.getItem("ll_base") || "http://127.0.0.1:19777";
 let cfg=null, scan=[], modelList=[], history=[], attach=[], flagsSpec=null;
 let abortCtl=null;
 
@@ -200,7 +200,7 @@ async function startModel(){
   const id=$("#model").value; if(!id){ toast("Vyber model"); return; }
   const b=scan.find(p=>p.id===id);
   if(b && b.broken && !confirm("Model má poškodenú GGUF hlavičku.\nPokračovať?")) return;
-  $("#btnStart").disabled=true; toast("Štartujem "+id+"…");
+  $("#btnStart").disabled=true; toast("Štartujem "+id+"...");
   try{ const r=await fetch(BASE+"/api/start?id="+encodeURIComponent(id),{cache:"no-store"});
     const j=await r.json();
     if(j.status==="ok"){ toast("Beží ✔"); setTimeout(refreshServer,400); }
@@ -220,13 +220,14 @@ function fileToDataURL(f){ return new Promise((res,rej)=>{ const r=new FileReade
 async function getB64(path){ const r=await fetch(BASE+"/api/file?path="+encodeURIComponent(path)); const b=await r.blob();
   return await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result.split(",")[1]); fr.onerror=rej; fr.readAsDataURL(b); }); }
 async function uploadOne(f){
-  toast("Nahrávam "+f.name+"…");
+  toast("Nahrávam "+f.name+"...");
   let j;
   try{ const r=await fetch(BASE+"/upload",{method:"POST",headers:{"X-Filename":encodeURIComponent(f.name)},body:f}); j=await r.json(); }
   catch(err){ toast("Upload zlyhal: "+err.message); return; }
   if(j.status!=="ok"){ toast("Upload: "+(j.error||"?")); return; }
   if(j.kind==="image"){ attach.push({kind:"image", name:j.name, path:j.path, dataurl:await fileToDataURL(f)}); }
   else if(j.kind==="audio"){ attach.push({kind:"audio", name:j.name, path:j.converted||j.path}); }
+  else if(j.kind==="text"){ attach.push({kind:"text", name:j.name, path:j.path, text:j.text||"", truncated:!!j.truncated}); }
   else if(j.kind==="video"){
     (j.frames||[]).forEach(fr=>attach.push({kind:"image", name:fr.name, path:fr.path, dataurl:null}));
     if(j.audio) attach.push({kind:"audio", name:(j.name+" (audio)"), path:j.audio});
@@ -240,6 +241,7 @@ function renderChips(){
     const d=document.createElement("div"); d.className="chip"; let inner="";
     if(a.kind==="image"){ const src=a.dataurl||(BASE+"/api/file?path="+encodeURIComponent(a.path)); inner='<img src="'+src+'">'; }
     else if(a.kind==="audio"){ inner='<span>🔊</span>'; }
+    else if(a.kind==="text"){ inner='<span>📄</span>'; }
     inner+='<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">'+esc(a.name)+'</span>';
     d.innerHTML=inner+'<span class="x">✕</span>';
     d.querySelector(".x").onclick=()=>{ attach.splice(i,1); renderChips(); };
@@ -265,7 +267,11 @@ async function send(){
   const content=[];
   if(text) content.push({type:"text", text});
   for(const a of attach){
-    if(a.kind==="image"){ if(a.dataurl) content.push({type:"image_url", image_url:{url:a.dataurl}});
+    if(a.kind==="text"){
+      const body = a.text || "(súbor sa nepodarilo prečítať)" + (a.truncated?" ...(skrátené)":"");
+      content.push({type:"text", text:"\n--- obsah súboru: "+a.name+" ---\n"+body+"\n--- koniec súboru ---\n"});
+    }
+    else if(a.kind==="image"){ if(a.dataurl) content.push({type:"image_url", image_url:{url:a.dataurl}});
       else { try{ const b64=await getB64(a.path); content.push({type:"image_url", image_url:{url:"data:image/jpeg;base64,"+b64}}); }catch(e){} } }
     else if(a.kind==="audio"){ try{ const b64=await getB64(a.path); content.push({type:"input_audio", input_audio:{data:b64, format:"wav"}}); }catch(e){} }
   }
@@ -344,7 +350,6 @@ function buildForm(){
 }
 function applyCfgToForm(){
   const d=cfg.defaults||{}, c=cfg.chat||{};
-  // najdi spec pre dane key
   const byKey={}; (flagsSpec.categories||[]).forEach(cat=>(cat.fields||[]).forEach(f=>byKey[f.key]=f));
   document.querySelectorAll("#setForm [data-key]").forEach(el=>{
     const key=el.getAttribute("data-key"); const f=byKey[key]||{}; const v=d[key];
