@@ -1,5 +1,8 @@
 name: build-llamalite-apk
 
+# Zkompiluje natívnu apku a zabali do nej Android binarku llama-server
+# (jniLibs/arm64-v8a/libllamaserver.so). Vysledne APK je samostatne - bez Operitu.
+
 on:
   workflow_dispatch:
   push:
@@ -7,15 +10,45 @@ on:
     paths: ["android/**", ".github/workflows/build-apk.yml"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
+      # ---- 1) skompiluj llama-server pre Android ----
+      - name: Checkout llama.cpp
+        uses: actions/checkout@v4
+        with:
+          repository: ggml-org/llama.cpp
+          path: src
+          fetch-depth: 1
+
+      - name: Build llama-server (arm64, static)
+        working-directory: src
+        shell: bash
+        run: |
+          set -e
+          NDK="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_ROOT}"
+          cmake -B build-android \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DLLAMA_CURL=OFF -DLLAMA_BUILD_SERVER=ON -DGGML_OPENMP=OFF \
+            -DGGML_LLAMAFILE=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
+            -DLLAMA_BUILD_TOOLS=ON -DLLAMA_BUILD_COMMON=ON
+          cmake --build build-android --target llama-server -j"$(nproc)"
+          BIN=$(find build-android -name 'llama-server' -type f | head -1)
+          STRIP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          [ -x "$STRIP" ] && "$STRIP" --strip-all "$BIN" || true
+          mkdir -p ../android/app/src/main/jniLibs/arm64-v8a
+          cp "$BIN" ../android/app/src/main/jniLibs/arm64-v8a/libllamaserver.so
+          ls -la ../android/app/src/main/jniLibs/arm64-v8a/
+
+      # ---- 2) build APK ----
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -29,22 +62,17 @@ jobs:
         working-directory: android
         run: gradle assembleRelease --no-daemon --stacktrace
 
-      - name: Locate APK
-        id: apk
+      - name: Sign APK
         run: |
-          APK=$(find android/app/build/outputs/apk/release -name '*.apk' | head -1)
-          echo "path=$APK" >> "$GITHUB_OUTPUT"
-          ls -lh "$APK"
-
-      - name: Sign APK (debug keystore = installable)
-        run: |
+          set -e
           BT=$(ls $ANDROID_SDK_ROOT/build-tools/ | sort -V | tail -1)
           KS="$RUNNER_TEMP/ks.jks"
           keytool -genkeypair -keystore "$KS" -alias ll -keyalg RSA -keysize 2048 \
             -validity 10000 -storepass llpass123 -keypass llpass123 \
             -dname "CN=llamalite" >/dev/null 2>&1
+          APK=$(find android/app/build/outputs/apk/release -name '*.apk' | head -1)
           ALIGNED="$RUNNER_TEMP/aligned.apk"
-          $ANDROID_SDK_ROOT/build-tools/$BT/zipalign -f 4 "${{ steps.apk.outputs.path }}" "$ALIGNED"
+          $ANDROID_SDK_ROOT/build-tools/$BT/zipalign -f 4 "$APK" "$ALIGNED"
           $ANDROID_SDK_ROOT/build-tools/$BT/apksigner sign \
             --ks "$KS" --ks-key-alias ll \
             --ks-pass pass:llpass123 --key-pass pass:llpass123 \

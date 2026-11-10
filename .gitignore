@@ -3,3 +3,7 @@
 *.pid
 __pycache__/
 *.pyc
+android/app/src/main/jniLibs/
+android/.gradle/
+android/build/
+android/app/build/
